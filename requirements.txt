@@ -1,0 +1,6 @@
+flask
+flask-cors
+imap-tools
+werkzeug
+gunicorn
+streamlit
