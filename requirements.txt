@@ -4,3 +4,6 @@ imap-tools
 werkzeug
 gunicorn
 streamlit
+Pillow
+PyMuPDF
+pdf2docx
