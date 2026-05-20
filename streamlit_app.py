@@ -522,14 +522,14 @@ def render_bank_upload_form():
                             "Col1": t_type, "Col2": amt, "Col3": today_str,
                             "Col4": match_name, "Col5": match_acc,
                             "Col6": "", "Col7": "", "Col8": company_acc,
-                            "Col9": current_serial, "Col10": match_ifsc, "Col11": "10"
+                            "Col9": f"{current_serial:06d}", "Col10": match_ifsc, "Col11": "10"
                         })
                         current_serial += 1
 
             # 2. Append manual rows
             for mr in st.session_state.manual_rows:
                 mr_copy = mr.copy()
-                mr_copy["Col9"] = current_serial
+                mr_copy["Col9"] = f"{current_serial:06d}"
                 transactions.append(mr_copy)
                 current_serial += 1
 
