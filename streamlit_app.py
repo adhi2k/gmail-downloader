@@ -443,7 +443,7 @@ def render_bank_upload_form():
             
             for mr in st.session_state.manual_rows:
                 mr_copy = mr.copy()
-                mr_copy["Col9"] = f"{current_serial:06d}"
+                mr_copy["Col9"] = str(current_serial)
                 transactions.append(mr_copy)
                 current_serial += 1
             
