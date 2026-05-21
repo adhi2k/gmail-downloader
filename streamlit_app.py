@@ -284,7 +284,12 @@ def render_bank_upload_form():
 
     config = load_config()
 
-    tab1, tab2 = st.tabs(["🚀 Upload", "⚙️ Settings"])
+    def finalize_batch(new_serial):
+        config["last_serial"] = new_serial
+        save_config(config)
+        st.session_state.manual_rows = []
+
+    tab1, tab2 = st.tabs(["🚀 Create Batch", "⚙️ Settings"])
 
     # --- TAB 2: Settings ---
     with tab2:
@@ -417,150 +422,59 @@ def render_bank_upload_form():
                 st.success(f"Added {entry['name']} — ₹{amount:,.2f}")
                 st.rerun()
 
-    # --- TAB 1: Upload ---
+    # --- TAB 1: Create Batch ---
     with tab1:
         st.info(f"Next Serial No: **{config.get('last_serial', 0) + 1}**  |  "
                 f"Database loaded: **{len(df_db)}** entries")
         
-        col_upload, col_manual = st.columns([3, 1])
-        with col_upload:
-            salary_file = st.file_uploader("Upload Payment Sheet (Employee Code / Vendor Name + Amount)", type=["csv", "xlsx"], key="salary")
-        with col_manual:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("➕ Add Manual", use_container_width=True):
-                add_manual_row()
+        if st.button("➕ Add Manual Transaction", use_container_width=True):
+            add_manual_row()
 
         # Show manually added rows preview if any
         if st.session_state.manual_rows:
-            st.markdown(f"**Manually added entries: {len(st.session_state.manual_rows)}**")
+            st.subheader(f"Staged Transactions ({len(st.session_state.manual_rows)})")
+            
             manual_preview = pd.DataFrame(st.session_state.manual_rows)[["Col4", "Col2", "Col5", "Col10"]]
             manual_preview.columns = ["Name", "Amount", "Account No", "IFSC"]
             st.dataframe(manual_preview, use_container_width=True)
-            if st.button("🗑️ Clear Manual Entries"):
-                st.session_state.manual_rows = []
-                st.rerun()
-
-        if salary_file or st.session_state.manual_rows:
+            
             transactions = []
             current_serial = config.get("last_serial", 0) + 1
-            today_str = date.today().strftime("%d-%m-%Y")
-            company_ifsc = config.get("company_ifsc", "").strip().upper()
-            company_acc = config.get("company_acc_no", "924020049602165")
-            errors = []
             
-            # 1. Process file if uploaded
-            if salary_file:
-                if salary_file.name.endswith('.csv'):
-                    df_sal = pd.read_csv(salary_file, dtype=str)
-                else:
-                    df_sal = pd.read_excel(salary_file, dtype=str)
-                    
-                df_sal.columns = [str(c).strip() for c in df_sal.columns]
-                sal_cols = df_sal.columns.str.lower()
-                
-                def find_sal_col(keywords):
-                    for i, c in enumerate(sal_cols):
-                        if all(k in c for k in keywords):
-                            return df_sal.columns[i]
-                    return None
-                
-                sal_id_col = find_sal_col(['code']) or find_sal_col(['name']) or (df_sal.columns[0] if len(df_sal.columns) >= 1 else None)
-                sal_amt_col = find_sal_col(['salary']) or find_sal_col(['amount']) or (df_sal.columns[1] if len(df_sal.columns) >= 2 else None)
-                
-                if not sal_id_col or not sal_amt_col:
-                    st.error("Payment sheet needs at least 2 columns: an identifier (Code/Name) and an Amount.")
-                else:
-                    for idx, row in df_sal.iterrows():
-                        identifier = str(row[sal_id_col]).replace('.0', '').strip()
-                        if identifier.upper() == 'NAN' or not identifier:
-                            continue
-                            
-                        amt_str = str(row[sal_amt_col]).replace(',', '').strip()
-                        try:
-                            amt = float(amt_str)
-                        except ValueError:
-                            continue 
-                        
-                        matched = False
-                        match_name = ""
-                        match_acc = ""
-                        match_ifsc = ""
-                        
-                        if not df_db.empty and db_acc_col and db_ifsc_col:
-                            # Try Employee Code match first
-                            if db_code_col:
-                                db_codes = df_db[db_code_col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.upper()
-                                code_match = df_db[db_codes == identifier.upper()]
-                                if not code_match.empty:
-                                    data = code_match.iloc[0]
-                                    match_name = str(data[db_name_col]).strip() if db_name_col else identifier
-                                    match_acc = str(data[db_acc_col]).replace('.0', '').strip()
-                                    match_ifsc = str(data[db_ifsc_col]).strip().upper()
-                                    matched = True
-                            
-                            # Fallback: match by Name (for vendors in the same sheet)
-                            if not matched and db_name_col:
-                                db_names = df_db[db_name_col].astype(str).str.strip().str.upper()
-                                name_match = df_db[db_names == identifier.upper()]
-                                if not name_match.empty:
-                                    data = name_match.iloc[0]
-                                    match_name = str(data[db_name_col]).strip()
-                                    match_acc = str(data[db_acc_col]).replace('.0', '').strip()
-                                    match_ifsc = str(data[db_ifsc_col]).strip().upper()
-                                    matched = True
-                        
-                        if not matched:
-                            errors.append(f"'{identifier}'")
-                            continue
-                        
-                        if len(match_ifsc) >= 4 and len(company_ifsc) >= 4 and match_ifsc[:4] == company_ifsc[:4]:
-                            t_type = "I"
-                        else:
-                            t_type = "N" if amt < 2000000 else "R"
-                                
-                        transactions.append({
-                            "Col1": t_type, "Col2": amt, "Col3": today_str,
-                            "Col4": match_name, "Col5": match_acc,
-                            "Col6": "", "Col7": "", "Col8": company_acc,
-                            "Col9": f"{current_serial:06d}", "Col10": match_ifsc, "Col11": "10"
-                        })
-                        current_serial += 1
-
-            # 2. Append manual rows
             for mr in st.session_state.manual_rows:
                 mr_copy = mr.copy()
                 mr_copy["Col9"] = f"{current_serial:06d}"
                 transactions.append(mr_copy)
                 current_serial += 1
-
-            if errors:
-                st.warning(f"⚠️ Not found in database: {', '.join(errors)}")
-                    
-            if transactions:
-                st.success(f"✅ {len(transactions)} transactions generated")
-                df_trans = pd.DataFrame(transactions)
-                
-                import io
-                excel_buffer = io.BytesIO()
-                with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                    df_trans.to_excel(writer, index=False, header=False, sheet_name='BankUpload')
-                    worksheet = writer.sheets['BankUpload']
-                    for row_cells in worksheet.iter_rows():
-                        for cell in row_cells:
-                            cell.number_format = '@'
-                excel_data = excel_buffer.getvalue()
-                
-                st.download_button("⬇️ Download Bank Upload Excel", data=excel_data, 
-                                   file_name=f"bank_upload_{date.today()}.xlsx", 
-                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
-                                   key="dl_btn")
-                
-                # Auto-update serial number
-                config["last_serial"] = current_serial - 1
-                save_config(config)
-            else:
-                if not errors:
-                    st.warning("No valid entries found in the uploaded sheet or manual list.")
+            
+            df_trans = pd.DataFrame(transactions)
+            
+            excel_buffer = io.BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                df_trans.to_excel(writer, index=False, header=False, sheet_name='BankUpload')
+                worksheet = writer.sheets['BankUpload']
+                for row_cells in worksheet.iter_rows():
+                    for cell in row_cells:
+                        cell.number_format = '@'
+            excel_data = excel_buffer.getvalue()
+            
+            col_dl, col_clr = st.columns(2)
+            with col_dl:
+                st.download_button(
+                    "⬇️ Download Bank Upload Excel",
+                    data=excel_data,
+                    file_name=f"bank_upload_{date.today()}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_btn",
+                    on_click=finalize_batch,
+                    args=(current_serial - 1,)
+                )
+            with col_clr:
+                if st.button("🗑️ Clear Manual Entries", use_container_width=True):
+                    st.session_state.manual_rows = []
+                    st.rerun()
+        else:
+            st.warning("No transactions staged. Click the button above to add entries.")
 
 # Sidebar Navigation
 st.sidebar.title("Navigation")
